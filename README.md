@@ -29,13 +29,13 @@ Root доступ
 ## Быстрая установка﻿
 
 bash
-wget -N --no-check-certificate https://raw.githubusercontent.com/MeccCZ/hysteria2-install/main/hysteria2-install.sh
+wget -N --no-check-certificate https://raw.githubusercontent.com/MeccCZ/hysteria2-pro-max-tuz/main/hysteria2-install.sh
 chmod +x hysteria2-install.sh
 ./hysteria2-install.sh
 Или одной командой:
 
 bash
-bash <(curl -fsSL https://raw.githubusercontent.com/MeccCZ/hysteria2-install/main/hysteria2-install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/MeccCZ/hysteria2-pro-max-tuz/main/hysteria2-install.sh)
 ## Использование﻿
 
 ### Интерактивное меню﻿
