@@ -347,7 +347,7 @@ configure_hysteria() {
     local auth_pwd=$(date +%s%N | md5sum | cut -c 1-16)
     local obfs_pwd=$(date +%s%N | md5sum | cut -c 1-16)
     
-    # Сохраняем obfs пароль отдельно для дальнейшего использования
+    # Сохраняем obfs пароль отдельно
     echo "$obfs_pwd" > /etc/hysteria/obfs_password.txt
     
     openssl ecparam -genkey -name prime256v1 -out /etc/hysteria/private.key
@@ -358,6 +358,7 @@ configure_hysteria() {
     # Создаём файл с первым пользователем
     echo "$auth_pwd" > /etc/hysteria/users.txt
 
+    # ИСПРАВЛЕНО: правильный формат для одного пароля
     cat << EOF > /etc/hysteria/config.yaml
 listen: :$port
 
@@ -372,8 +373,7 @@ obfs:
 
 auth:
   type: password
-  password:
-    - $auth_pwd
+  password: $auth_pwd
 
 masquerade:
   type: proxy
@@ -420,7 +420,44 @@ update_config_from_users() {
     local sni=$(grep SNI /etc/hysteria/server_info.txt | cut -d'=' -f2)
     local masquerade=$(grep MASQUERADE /etc/hysteria/server_info.txt | cut -d'=' -f2)
 
-    cat << EOF > /etc/hysteria/config.yaml
+    # Читаем всех пользователей
+    local user_count=$(wc -l < /etc/hysteria/users.txt)
+    
+    # ИСПРАВЛЕНО: правильный формат в зависимости от количества пользователей
+    if [ "$user_count" -eq 1 ]; then
+        # Один пользователь - строка
+        local password_value=$(head -n 1 /etc/hysteria/users.txt)
+        cat << EOF > /etc/hysteria/config.yaml
+listen: :$port
+
+tls:
+  cert: /etc/hysteria/cert.crt
+  key: /etc/hysteria/private.key
+
+obfs:
+  type: salamander
+  salamander:
+    password: $obfs_pwd
+
+auth:
+  type: password
+  password: $password_value
+
+masquerade:
+  type: proxy
+  proxy:
+    url: https://$masquerade
+    rewriteHost: true
+
+quic:
+  initStreamReceiveWindow: 16777216
+  maxStreamReceiveWindow: 16777216
+  initConnReceiveWindow: 33554432
+  maxConnReceiveWindow: 33554432
+EOF
+    else
+        # Несколько пользователей - массив
+        cat << EOF > /etc/hysteria/config.yaml
 listen: :$port
 
 tls:
@@ -449,6 +486,7 @@ quic:
   initConnReceiveWindow: 33554432
   maxConnReceiveWindow: 33554432
 EOF
+    fi
 }
 
 add_user() {
@@ -488,7 +526,6 @@ add_user() {
     source /etc/hysteria/server_info.txt
 
     # Генерируем конфиг для пользователя
-    local user_count=$(wc -l < /etc/hysteria/users.txt)
     local config_file="/root/hysteria2_${username}.txt"
 
     cat << EOF > "$config_file"
@@ -531,6 +568,12 @@ list_users() {
 delete_user() {
     if [[ ! -f /etc/hysteria/users.txt ]]; then
         red "Hysteria2 не установлен!"
+        return 1
+    fi
+
+    local user_count=$(wc -l < /etc/hysteria/users.txt)
+    if [ "$user_count" -eq 1 ]; then
+        red "Нельзя удалить последнего пользователя!"
         return 1
     fi
 
