@@ -55,7 +55,7 @@ get_ip() {
 
 install_server_core() {
     yellow "Установка Hysteria2..."
-    
+
     set -e
 
     SCRIPT_ARGS=("$@")
@@ -337,24 +337,31 @@ EOF
 
 configure_hysteria() {
     yellow "Настройка сервера Hysteria2..."
-    
+
     mkdir -p /etc/hysteria
-    
+
     local sni_host="web.max.ru"
     local masquerade_url="web.max.ru"
     local port="443"
-    
-    local auth_pwd=$(date +%s%N | md5sum | cut -c 1-16)
+
     local obfs_pwd=$(date +%s%N | md5sum | cut -c 1-16)
-    
+
     echo "$obfs_pwd" > /etc/hysteria/obfs_password.txt
-    
+
     openssl ecparam -genkey -name prime256v1 -out /etc/hysteria/private.key
     openssl req -new -x509 -days 36500 -key /etc/hysteria/private.key -out /etc/hysteria/cert.crt -subj "/CN=$sni_host"
     chmod 600 /etc/hysteria/cert.crt
     chmod 600 /etc/hysteria/private.key
 
-    echo "$auth_pwd" > /etc/hysteria/users.txt
+    # Запрашиваем имя первого пользователя
+    read -p "Введите имя первого пользователя (латиница/цифры): " first_username
+    if [[ -z "$first_username" ]]; then
+        red "Имя пользователя не может быть пустым!"
+        exit 1
+    fi
+
+    local first_pwd=$(date +%s%N | md5sum | cut -c 1-16)
+    echo "$first_username:$first_pwd" > /etc/hysteria/users.txt
 
     cat > /etc/hysteria/config.yaml << EOF
 listen: :$port
@@ -369,8 +376,9 @@ obfs:
     password: $obfs_pwd
 
 auth:
-  type: password
-  password: $auth_pwd
+  type: userpass
+  userpass:
+    $first_username: $first_pwd
 
 masquerade:
   type: proxy
@@ -386,7 +394,7 @@ quic:
 EOF
 
     local server_ip=$(get_ip)
-    
+
     cat > /etc/hysteria/server_info.txt << EOF
 SERVER_IP=$server_ip
 PORT=$port
@@ -395,8 +403,8 @@ OBFS_PWD=$obfs_pwd
 MASQUERADE=$masquerade_url
 EOF
 
-    cat > /root/hysteria2_user1.txt << EOF
-hy2://$auth_pwd@$server_ip:$port?mport&security=tls&sni=$sni_host&allowInsecure=true&alpn&obfs=salamander&obfs-password=$obfs_pwd#User1
+    cat > /root/hysteria2_${first_username}.txt << EOF
+hy2://$first_username:$first_pwd@$server_ip:$port?mport&security=tls&sni=$sni_host&allowInsecure=true&alpn&obfs=salamander&obfs-password=$obfs_pwd#$first_username
 EOF
 
     green "Настройка завершена!"
@@ -404,7 +412,8 @@ EOF
     yellow "IP сервера: $server_ip"
     yellow "Порт: $port"
     yellow "SNI: $sni_host"
-    yellow "Пароль пользователя 1: $auth_pwd"
+    yellow "Имя пользователя 1: $first_username"
+    yellow "Пароль пользователя 1: $first_pwd"
     yellow "Пароль обфускации: $obfs_pwd"
     yellow "Маскировка: https://$masquerade_url"
     echo
@@ -416,11 +425,7 @@ update_config_from_users() {
     local sni=$(grep SNI /etc/hysteria/server_info.txt | cut -d'=' -f2)
     local masquerade=$(grep MASQUERADE /etc/hysteria/server_info.txt | cut -d'=' -f2)
 
-    local user_count=$(wc -l < /etc/hysteria/users.txt)
-    
-    if [ "$user_count" -eq 1 ]; then
-        local password_value=$(head -n 1 /etc/hysteria/users.txt)
-        cat > /etc/hysteria/config.yaml << EOF
+    cat > /etc/hysteria/config.yaml << EOF
 listen: :$port
 
 tls:
@@ -433,8 +438,14 @@ obfs:
     password: $obfs_pwd
 
 auth:
-  type: password
-  password: $password_value
+  type: userpass
+  userpass:
+EOF
+    while IFS=: read -r user pass; do
+    echo "    $user: $pass" >> /etc/hysteria/config.yaml
+    done < /etc/hysteria/users.txt
+
+    cat >> /etc/hysteria/config.yaml << EOF
 
 masquerade:
   type: proxy
@@ -448,42 +459,6 @@ quic:
   initConnReceiveWindow: 33554432
   maxConnReceiveWindow: 33554432
 EOF
-    else
-        cat > /etc/hysteria/config.yaml << EOF
-listen: :$port
-
-tls:
-  cert: /etc/hysteria/cert.crt
-  key: /etc/hysteria/private.key
-
-obfs:
-  type: salamander
-  salamander:
-    password: $obfs_pwd
-
-auth:
-  type: password
-  password:
-EOF
-        while IFS= read -r pwd; do
-            echo "    - \"$pwd\"" >> /etc/hysteria/config.yaml
-        done < /etc/hysteria/users.txt
-
-        cat >> /etc/hysteria/config.yaml << EOF
-
-masquerade:
-  type: proxy
-  proxy:
-    url: https://$masquerade
-    rewriteHost: true
-
-quic:
-  initStreamReceiveWindow: 16777216
-  maxStreamReceiveWindow: 16777216
-  initConnReceiveWindow: 33554432
-  maxConnReceiveWindow: 33554432
-EOF
-    fi
 }
 
 add_user() {
@@ -494,43 +469,49 @@ add_user() {
 
     green "=== Добавление нового пользователя ==="
     echo
+
+    local username new_pwd config_file
+
     read -p "Введите имя пользователя (латиница/цифры): " username
-    
+
+    username="${username// /}"
+
     if [[ -z "$username" ]]; then
         red "Имя пользователя не может быть пустым!"
         return 1
     fi
 
-    local new_pwd=$(date +%s%N | md5sum | cut -c 1-16)
-
-    if grep -Fxq "$new_pwd" /etc/hysteria/users.txt; then
-        yellow "Такой пароль уже существует! Попробуйте снова."
+    if grep -q "^$username:" /etc/hysteria/users.txt; then
+        red "Пользователь с таким именем уже существует!"
         return 1
     fi
 
-    echo "$new_pwd" >> /etc/hysteria/users.txt
+    new_pwd=$(date +%s%N | md5sum | cut -c 1-16)
+
+    echo "$username:$new_pwd" >> /etc/hysteria/users.txt
 
     update_config_from_users
 
     systemctl restart hysteria-server
 
-    source /etc/hysteria/server_info.txt
+    source /etc/hysteria/server_info.txt 2>/dev/null || true
 
-    local config_file="/root/hysteria2_${username}.txt"
+    config_file="/root/hysteria2_${username}.txt"
 
     cat > "$config_file" << EOF
-hy2://$new_pwd@$SERVER_IP:$PORT?mport&security=tls&sni=$SNI&allowInsecure=true&alpn&obfs=salamander&obfs-password=$OBFS_PWD#$username
+hy2://$username:$new_pwd@$SERVER_IP:$PORT?mport&security=tls&sni=$SNI&allowInsecure=true&alpn&obfs=salamander&obfs-password=$OBFS_PWD#$username
 EOF
 
     green "Пользователь '$username' успешно добавлен!"
     echo
+    yellow "Имя: $username"
     yellow "Пароль: $new_pwd"
     yellow "Конфигурация сохранена: $config_file"
     echo
     yellow "Строка подключения:"
     cat "$config_file"
     echo
-    
+
     if command -v qrencode &> /dev/null; then
         green "=== QR Code для $username ==="
         qrencode -t ANSIUTF8 "$(cat $config_file)"
@@ -538,6 +519,20 @@ EOF
     fi
 }
 
+: '
+add_user() {
+    green "=== Тест добавления ==="
+    echo
+    local username new_pwd
+    read -p "Имя: " username
+    username="${username// /}"
+    new_pwd="TEST1234567890"
+    echo "Введено имя  : '$username'"
+    echo "Длина имени   : ${#username}"
+    echo "Полная строка : hy2://$username:$new_pwd@..."
+    echo "Файл был бы   : /root/hysteria2_${username}.txt"
+}
+'
 list_users() {
     if [[ ! -f /etc/hysteria/users.txt ]]; then
         red "Hysteria2 не установлен!"
@@ -547,22 +542,15 @@ list_users() {
     green "=== Список пользователей ==="
     echo
     local count=1
-    while IFS= read -r password; do
-        yellow "Пользователь $count: $password"
-        
-        if [[ -f "/root/hysteria2_user${count}.txt" ]]; then
-            echo "   Конфиг: /root/hysteria2_user${count}.txt"
+    while IFS=: read -r username password; do
+        yellow "Пользователь $count: $username"
+        yellow "Пароль: $password"
+
+        local config_file="/root/hysteria2_${username}.txt"
+        if [[ -f "$config_file" ]]; then
+            echo "   Конфиг: $config_file"
         fi
-        
-        local found_config=""
-        for config in /root/hysteria2_*.txt; do
-            if [[ -f "$config" ]] && grep -q "$password" "$config"; then
-                found_config=$(basename "$config")
-                echo "   Конфиг: $config"
-                break
-            fi
-        done
-        
+
         ((count++))
     done < /etc/hysteria/users.txt
     echo
@@ -583,29 +571,31 @@ delete_user() {
 
     list_users
     echo
-    read -p "Введите пароль пользователя для удаления: " del_pwd
+    read -p "Введите имя пользователя для удаления: " del_username
 
-    if ! grep -Fxq "$del_pwd" /etc/hysteria/users.txt; then
-        red "Пользователь с таким паролем не найден!"
+    if ! grep -q "^$del_username:" /etc/hysteria/users.txt; then
+        red "Пользователь с таким именем не найден!"
         return 1
     fi
 
-    sed -i "/^$del_pwd$/d" /etc/hysteria/users.txt
+    sed -i "/^$del_username:/d" /etc/hysteria/users.txt
 
     update_config_from_users
 
     systemctl restart hysteria-server
+
+    rm -f "/root/hysteria2_${del_username}.txt"
 
     green "Пользователь успешно удалён!"
 }
 
 start_service() {
     yellow "Запуск службы Hysteria2..."
-    
+
     systemctl daemon-reload
     systemctl enable hysteria-server
     systemctl start hysteria-server
-    
+
     sleep 2
     if systemctl is-active --quiet hysteria-server; then
         green "Служба Hysteria2 успешно запущена"
@@ -617,14 +607,18 @@ start_service() {
 }
 
 show_config() {
+    # Показываем конфиг первого пользователя (теперь с username)
+    local first_line=$(head -n 1 /etc/hysteria/users.txt)
+    local first_username=${first_line%%:*}
+
     echo
-    green "=== Конфигурация первого пользователя ==="
-    cat /root/hysteria2_user1.txt
+    green "=== Конфигурация первого пользователя ($first_username) ==="
+    cat /root/hysteria2_${first_username}.txt
     echo
-    
+
     if command -v qrencode &> /dev/null; then
         green "=== QR Code ==="
-        qrencode -t ANSIUTF8 "$(cat /root/hysteria2_user1.txt)"
+        qrencode -t ANSIUTF8 "$(cat /root/hysteria2_${first_username}.txt)"
     fi
 }
 
@@ -635,13 +629,13 @@ show_all_configs() {
     fi
 
     source /etc/hysteria/server_info.txt
-    
+
     green "=== Все конфигурации пользователей ==="
     echo
     local count=1
-    while IFS= read -r password; do
-        yellow "Пользователь $count:"
-        echo "hy2://$password@$SERVER_IP:$PORT?mport&security=tls&sni=$SNI&allowInsecure=true&alpn&obfs=salamander&obfs-password=$OBFS_PWD#User$count"
+    while IFS=: read -r username password; do
+        yellow "Пользователь $count ($username):"
+        echo "hy2://$username:$password@$SERVER_IP:$PORT?mport&security=tls&sni=$SNI&allowInsecure=true&alpn&obfs=salamander&obfs-password=$OBFS_PWD#$username"
         echo
         ((count++))
     done < /etc/hysteria/users.txt
@@ -649,7 +643,7 @@ show_all_configs() {
 
 uninstall_hysteria() {
     red "Удаление Hysteria2..."
-    
+
     systemctl stop hysteria-server 2>/dev/null || true
     systemctl disable hysteria-server 2>/dev/null || true
     rm -f /etc/systemd/system/hysteria-server.service
@@ -657,7 +651,7 @@ uninstall_hysteria() {
     rm -rf /etc/hysteria
     rm -f /root/hysteria2*.txt
     systemctl daemon-reload
-    
+
     green "Hysteria2 полностью удален!"
 }
 
@@ -707,7 +701,7 @@ main() {
                         show_config
                         green "Установка завершена!"
                         echo
-                        yellow "Конфиг: /root/hysteria2_user1.txt"
+                        yellow "Конфиг: /root/hysteria2_*.txt"
                     fi
                     read -p "Нажмите Enter для продолжения..."
                     ;;
