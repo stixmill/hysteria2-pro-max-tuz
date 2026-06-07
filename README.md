@@ -97,13 +97,13 @@ text
 
 ### Android﻿
 
-Установите Hiddify или v2rayNG
+Установите Exclave(предпочтительно), Hiddify или v2rayNG
 
 Отсканируйте QR-код или вставьте строку подключения из файла /root/hysteria2_username.txt
 
 ### iOS﻿
 
-Установите Shadowrocket или Stash
+Установите V2BOX(предпочтительно), Shadowrocket или Stash
 
 Отсканируйте QR-код или вставьте строку подключения
 
@@ -185,6 +185,7 @@ bash
 bash
 cp ~/users_backup.txt /etc/hysteria/users.txt
 systemctl restart hysteria-server
+
 ## Безопасность﻿
 
 ⚠️ Скрипт генерирует самоподписанные сертификаты (allowInsecure=true)
@@ -205,7 +206,7 @@ MIT License - свободно используйте и модифицируй�
 
 📖 Документация Hysteria 2: https://v2.hysteria.network/
 
-🐛 Issues: https://github.com/MeccCZ/hysteria2-install/issues
+🐛 Issues: https://github.com/stixmill/hysteria2-install/issues
 
 💬 Telegram: [ваш канал]
 
