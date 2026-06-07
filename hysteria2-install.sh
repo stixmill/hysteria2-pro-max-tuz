@@ -352,6 +352,7 @@ configure_hysteria() {
     openssl req -new -x509 -days 36500 -key /etc/hysteria/private.key -out /etc/hysteria/cert.crt -subj "/CN=$sni_host"
     chmod 600 /etc/hysteria/cert.crt
     chmod 600 /etc/hysteria/private.key
+    local sha256hash="$(openssl x509 -in /etc/hysteria/cert.crt -outform DER 2>/dev/null | sha256sum 2>/dev/null | awk '{print $1}')"
 
     # Запрашиваем имя первого пользователя
     read -p "Введите имя первого пользователя (латиница/цифры): " first_username
@@ -426,10 +427,11 @@ PORT=$port
 SNI=$sni_host
 OBFS_PWD=$obfs_pwd
 MASQUERADE=$masquerade_url
+SHA256HASH=$sha256hash
 EOF
 
     cat > /root/hysteria2_${first_username}.txt << EOF
-hy2://$first_username:$first_pwd@$server_ip:$port?mport&security=tls&sni=$sni_host&allowInsecure=true&alpn&obfs=salamander&obfs-password=$obfs_pwd#$first_username
+hy2://$first_username:$first_pwd@$server_ip:$port?mport&security=tls&sni=$sni_host&allowInsecure=true&pinSHA256=$sha256hash&alpn&obfs=salamander&obfs-password=$obfs_pwd#$first_username
 EOF
 
     green "Настройка завершена!"
@@ -441,6 +443,7 @@ EOF
     yellow "Пароль пользователя 1: $first_pwd"
     yellow "Пароль обфускации: $obfs_pwd"
     yellow "Маскировка: https://$masquerade_url"
+    yellow "Хэш ssl сертификата : $sha256hash"
     echo
 }
 
@@ -449,6 +452,7 @@ update_config_from_users() {
     local port=$(grep PORT /etc/hysteria/server_info.txt | cut -d'=' -f2)
     local sni=$(grep SNI /etc/hysteria/server_info.txt | cut -d'=' -f2)
     local masquerade=$(grep MASQUERADE /etc/hysteria/server_info.txt | cut -d'=' -f2)
+    local sha256hash=$(grep SHA256HASH /etc/hysteria/server_info.txt | cut -d'=' -f2)
 
     cat > /etc/hysteria/config.yaml << EOF
 listen: :$port
@@ -549,7 +553,7 @@ add_user() {
     config_file="/root/hysteria2_${username}.txt"
 
     cat > "$config_file" << EOF
-hy2://$username:$new_pwd@$SERVER_IP:$PORT?mport&security=tls&sni=$SNI&allowInsecure=true&alpn&obfs=salamander&obfs-password=$OBFS_PWD#$username
+hy2://$username:$new_pwd@$SERVER_IP:$PORT?mport&security=tls&sni=$SNI&allowInsecure=true&pinSHA256=$SHA256HASH&alpn&obfs=salamander&obfs-password=$OBFS_PWD#$username
 EOF
 
     green "Пользователь '$username' успешно добавлен!"
