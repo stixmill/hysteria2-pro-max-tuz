@@ -431,7 +431,26 @@ listen: :$port
 tls:
   cert: /etc/hysteria/cert.crt
   key: /etc/hysteria/private.key
+  sniGuard: disable
 
+resolver:
+  tcp:
+    addr: 8.8.8.8:53
+    timeout: 4s
+  udp:
+    addr: 8.8.4.4:53
+    timeout: 4s
+  tls:
+    addr: 1.1.1.1:853
+    timeout: 10s
+    sni: cloudflare-dns.com
+    insecure: false
+  https:
+    addr: 1.1.1.1:443
+    timeout: 10s
+    sni: cloudflare-dns.com
+    insecure: false
+    
 obfs:
   type: salamander
   salamander:
@@ -452,12 +471,18 @@ masquerade:
   proxy:
     url: https://$masquerade
     rewriteHost: true
+  listenHTTP: :80
+  listenHTTPS: :443
+  forceHTTPS: true
 
 quic:
-  initStreamReceiveWindow: 16777216
-  maxStreamReceiveWindow: 16777216
-  initConnReceiveWindow: 33554432
-  maxConnReceiveWindow: 33554432
+  initStreamReceiveWindow: 8388608
+  maxStreamReceiveWindow: 8388608
+  initConnReceiveWindow: 20971520
+  maxConnReceiveWindow: 20971520
+  maxIdleTimeout: 30s
+  maxIncomingStreams: 1024
+  disablePathMTUDiscovery: false
 EOF
 }
 
