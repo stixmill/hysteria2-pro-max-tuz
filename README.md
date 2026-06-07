@@ -81,23 +81,33 @@ bash
 
 После установки будут созданы:
 
-text
 /etc/hysteria/
+
 ├── config.yaml          # Основной конфиг сервера
+
 ├── cert.crt             # SSL сертификат
+
 ├── private.key          # Приватный ключ
+
 ├── users.txt            # Список паролей пользователей
+
 ├── obfs_password.txt    # Пароль обфускации
+
 └── server_info.txt      # Информация о сервере
+
 /root/
+
 ├── hysteria2_user1.txt  # Конфиг первого пользователя
+
 ├── hysteria2_username.txt # Конфиги других пользователей
+
 └── ...
+
 ## Настройка клиентов﻿
 
 ### Android﻿
 
-Установите Exclave(предпочтительно), Hiddify или v2rayNG
+Установите Exclave(https://github.com/ExclaveNetwork/Exclave/releases), Hiddify или v2rayNG
 
 Отсканируйте QR-код или вставьте строку подключения из файла /root/hysteria2_username.txt
 
